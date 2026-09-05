@@ -36,7 +36,7 @@ def generate_test_suite(api_key: str, uploaded_image: Image.Image = None, html_s
         response_mime_type="application/json"
     )
 
-    # 1. Attempt using primary model with retry loop
+    # Primary model attempt with automatic retry loop for 503 errors
     max_retries = 3
     primary_model = GEMINI_MODEL if GEMINI_MODEL else "gemini-2.5-flash"
 
@@ -55,7 +55,7 @@ def generate_test_suite(api_key: str, uploaded_image: Image.Image = None, html_s
                 continue
             break
 
-    # 2. Fallback model attempt if primary is busy
+    # Fallback model attempt if primary is busy
     fallback_model = "gemini-2.5-flash"
     try:
         response = client.models.generate_content(
@@ -65,4 +65,4 @@ def generate_test_suite(api_key: str, uploaded_image: Image.Image = None, html_s
         )
         return clean_and_parse_json(response.text)
     except Exception as e:
-        raise Exception(f"API service unavailable. Details: {e}")
+        raise Exception(f"API service temporary capacity issue. Details: {e}")
