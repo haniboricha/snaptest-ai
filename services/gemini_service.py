@@ -6,7 +6,6 @@ import time
 from PIL import Image
 from google import genai
 from google.genai import types
-from google.genai.errors import APIError
 from config import GEMINI_MODEL, SYSTEM_PROMPT_TEMPLATE
 
 def clean_and_parse_json(raw_response_text: str) -> dict:
@@ -37,12 +36,14 @@ def generate_test_suite(api_key: str, uploaded_image: Image.Image = None, html_s
         response_mime_type="application/json"
     )
 
-    # 1. Attempt using primary model with retry loop on 503 errors
+    # 1. Attempt using primary model with retry loop
     max_retries = 3
+    primary_model = GEMINI_MODEL if GEMINI_MODEL else "gemini-2.5-flash"
+
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
-                model=GEMINI_MODEL,
+                model=primary_model,
                 contents=contents,
                 config=config
             )
@@ -50,12 +51,12 @@ def generate_test_suite(api_key: str, uploaded_image: Image.Image = None, html_s
         except Exception as e:
             error_msg = str(e)
             if ("503" in error_msg or "UNAVAILABLE" in error_msg) and attempt < max_retries - 1:
-                time.sleep((2 ** attempt) + 1)  # Wait 2s, then 5s before retrying
+                time.sleep((2 ** attempt) + 1)
                 continue
             break
 
-    # 2. Fallback attempt using fast model if primary model is overloaded
-    fallback_model = "gemini-1.5-flash"
+    # 2. Fallback model attempt if primary is busy
+    fallback_model = "gemini-2.5-flash"
     try:
         response = client.models.generate_content(
             model=fallback_model,
@@ -64,4 +65,4 @@ def generate_test_suite(api_key: str, uploaded_image: Image.Image = None, html_s
         )
         return clean_and_parse_json(response.text)
     except Exception as e:
-        raise Exception(f"Gemini API is currently overloaded. Please wait a moment and try again. ({e})")
+        raise Exception(f"API service unavailable. Details: {e}")

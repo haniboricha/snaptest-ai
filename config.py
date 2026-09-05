@@ -1,6 +1,6 @@
 # config.py
 
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-1.5-flash""
 
 SYSTEM_PROMPT_TEMPLATE = """
 You are an expert QA Automation Engineer. Analyze the provided input sources (UI screenshot and/or DOM HTML/JSX snippet) to generate a Playwright test suite.
