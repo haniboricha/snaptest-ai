@@ -6,6 +6,7 @@ import time
 from PIL import Image
 from google import genai
 from google.genai import types
+from google.genai.errors import APIError
 from config import GEMINI_MODEL, SYSTEM_PROMPT_TEMPLATE
 
 def clean_and_parse_json(raw_response_text: str) -> dict:
@@ -36,33 +37,40 @@ def generate_test_suite(api_key: str, uploaded_image: Image.Image = None, html_s
         response_mime_type="application/json"
     )
 
-    # Primary model attempt with automatic retry loop for 503 errors
-    max_retries = 3
-    primary_model = GEMINI_MODEL if GEMINI_MODEL else "gemini-2.5-flash"
+    # List of candidate models in order of priority
+    models_to_try = [
+        GEMINI_MODEL if GEMINI_MODEL else "gemini-2.5-flash",
+        "gemini-2.5-flash",
+        "gemini-1.5-flash-latest"
+    ]
+    
+    # Remove duplicates while preserving order
+    candidate_models = list(dict.fromkeys(models_to_try))
 
-    for attempt in range(max_retries):
-        try:
-            response = client.models.generate_content(
-                model=primary_model,
-                contents=contents,
-                config=config
-            )
-            return clean_and_parse_json(response.text)
-        except Exception as e:
-            error_msg = str(e)
-            if ("503" in error_msg or "UNAVAILABLE" in error_msg) and attempt < max_retries - 1:
-                time.sleep((2 ** attempt) + 1)
-                continue
-            break
+    last_error = None
 
-    # Fallback model attempt if primary is busy
-    fallback_model = "gemini-2.5-flash"
-    try:
-        response = client.models.generate_content(
-            model=fallback_model,
-            contents=contents,
-            config=config
-        )
-        return clean_and_parse_json(response.text)
-    except Exception as e:
-        raise Exception(f"API service temporary capacity issue. Details: {e}")
+    for model in candidate_models:
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=config
+                )
+                return clean_and_parse_json(response.text)
+            except APIError as e:
+                last_error = e
+                # Check for 503 Server Unavailable or 429 Rate Limit
+                if e.code in (503, 429) or "UNAVAILABLE" in str(e):
+                    if attempt < max_retries - 1:
+                        sleep_time = (2 ** attempt) * 3  # Wait 3s, then 6s, then 12s
+                        time.sleep(sleep_time)
+                        continue
+                # If non-transient API error, jump to next candidate model
+                break
+            except Exception as e:
+                last_error = e
+                break
+
+    raise Exception(f"Google Gemini servers are currently experiencing high demand. Please try clicking 'Generate Test Cases' again in 10-15 seconds. Details: {last_error}")
