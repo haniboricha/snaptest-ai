@@ -1,7 +1,7 @@
 # config.py
 import os
 
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-2.5-flash-lite"
 SYSTEM_PROMPT_TEMPLATE = """You are an automated QA engineering assistant. Analyze the provided image or HTML snippet and generate comprehensive, structured automation test cases in JSON format."""
 
 SYSTEM_PROMPT_TEMPLATE = """
