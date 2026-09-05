@@ -9,8 +9,8 @@ from google.genai import types
 from google.genai.errors import APIError
 from config import SYSTEM_PROMPT_TEMPLATE
 
-# Primary model and reliable fallback models in case of server traffic spikes
-MODELS_TO_TRY = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
+# Supported active models only
+MODELS_TO_TRY = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
 
 def clean_and_parse_json(raw_response_text: str) -> dict:
     cleaned = re.sub(r"```(?:json)?", "", raw_response_text, flags=re.IGNORECASE).strip()
@@ -46,9 +46,8 @@ def generate_test_suite(api_key: str, uploaded_image: Image.Image = None, html_s
 
     last_error = None
 
-    # Try each model sequentially if Google's servers return a 503 (High Demand) or 429 (Rate Limit)
     for model_name in MODELS_TO_TRY:
-        for attempt in range(2):  # Try 2 times per model with backoff
+        for attempt in range(2):
             try:
                 response = client.models.generate_content(
                     model=model_name,
@@ -59,14 +58,14 @@ def generate_test_suite(api_key: str, uploaded_image: Image.Image = None, html_s
                 
             except APIError as e:
                 last_error = e
-                # Server busy (503) or rate limit (429) -> retry or try fallback model
+                # Retry on busy server (503) or rate limit (429)
                 if e.code in (503, 429) or "UNAVAILABLE" in str(e).upper():
                     time.sleep(2)
                     continue
-                # If credentials or input errors occur, raise immediately
-                raise Exception(f"Gemini API Error ({e.code}): {e.message}")
+                # If a model returns 404 or other errors, break loop to hit the next fallback model immediately
+                break
             except Exception as e:
                 last_error = e
                 break
 
-    raise Exception(f"Google Gemini servers are currently experiencing severe high demand across all models. Please wait 1-2 minutes and try clicking 'Generate Test Cases' again. (Last Error: {last_error})")
+    raise Exception(f"Unable to process request with available models. Details: {last_error}")
