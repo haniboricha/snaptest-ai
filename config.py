@@ -1,6 +1,8 @@
 # config.py
+import os
 
 GEMINI_MODEL = "gemini-2.5-flash"
+SYSTEM_PROMPT_TEMPLATE = """You are an automated QA engineering assistant. Analyze the provided image or HTML snippet and generate comprehensive, structured automation test cases in JSON format."""
 
 SYSTEM_PROMPT_TEMPLATE = """
 You are an expert QA Automation Engineer. Analyze the provided input sources (UI screenshot and/or DOM HTML/JSX snippet) to generate a Playwright test suite.
