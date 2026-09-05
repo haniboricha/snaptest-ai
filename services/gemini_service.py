@@ -7,10 +7,12 @@ from PIL import Image
 from google import genai
 from google.genai import types
 from google.genai.errors import APIError
-from config import GEMINI_MODEL, SYSTEM_PROMPT_TEMPLATE
+from config import SYSTEM_PROMPT_TEMPLATE
+
+# Primary model and reliable fallback models in case of server traffic spikes
+MODELS_TO_TRY = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
 
 def clean_and_parse_json(raw_response_text: str) -> dict:
-    """Strips Markdown code fences and parses raw JSON string."""
     cleaned = re.sub(r"```(?:json)?", "", raw_response_text, flags=re.IGNORECASE).strip()
     try:
         return json.loads(cleaned)
@@ -21,18 +23,13 @@ def clean_and_parse_json(raw_response_text: str) -> dict:
         raise ValueError("Failed to extract valid JSON output from response.")
 
 def generate_test_suite(api_key: str, uploaded_image: Image.Image = None, html_snippet: str = "") -> dict:
-    """
-    Generates structured test cases using the Google GenAI SDK with gemini-2.5-flash.
-    Includes explicit retry handling for temporary server busy state (429/503).
-    """
-    if not api_key or not api_key.strip():
-        raise ValueError("Gemini API Key is missing. Please provide a valid key in the sidebar.")
+    clean_key = api_key.strip() if api_key else ""
+    if not clean_key:
+        raise ValueError("Please enter a valid Gemini API Key in the sidebar.")
 
-    # Initialize client explicitly
-    client = genai.Client(api_key=api_key.strip())
+    client = genai.Client(api_key=clean_key)
     
     contents = []
-
     if uploaded_image:
         contents.append(uploaded_image)
 
@@ -47,32 +44,29 @@ def generate_test_suite(api_key: str, uploaded_image: Image.Image = None, html_s
         response_mime_type="application/json"
     )
 
-    # Force target model to gemini-2.5-flash
-    target_model = GEMINI_MODEL if GEMINI_MODEL else "gemini-2.5-flash"
-
-    max_retries = 3
     last_error = None
 
-    for attempt in range(max_retries):
-        try:
-            response = client.models.generate_content(
-                model=target_model,
-                contents=contents,
-                config=config
-            )
-            return clean_and_parse_json(response.text)
-            
-        except APIError as e:
-            last_error = e
-            # Retry on rate limit (429) or temporary server unavailability (503)
-            if e.code in (429, 503) or "UNAVAILABLE" in str(e).upper():
-                if attempt < max_retries - 1:
-                    time.sleep(3 * (attempt + 1))
+    # Try each model sequentially if Google's servers return a 503 (High Demand) or 429 (Rate Limit)
+    for model_name in MODELS_TO_TRY:
+        for attempt in range(2):  # Try 2 times per model with backoff
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=config
+                )
+                return clean_and_parse_json(response.text)
+                
+            except APIError as e:
+                last_error = e
+                # Server busy (503) or rate limit (429) -> retry or try fallback model
+                if e.code in (503, 429) or "UNAVAILABLE" in str(e).upper():
+                    time.sleep(2)
                     continue
-            raise Exception(f"Gemini API Error ({e.code}): {e.message}")
-            
-        except Exception as e:
-            last_error = e
-            break
+                # If credentials or input errors occur, raise immediately
+                raise Exception(f"Gemini API Error ({e.code}): {e.message}")
+            except Exception as e:
+                last_error = e
+                break
 
-    raise Exception(f"Failed to generate tests due to server load: {last_error}")
+    raise Exception(f"Google Gemini servers are currently experiencing severe high demand across all models. Please wait 1-2 minutes and try clicking 'Generate Test Cases' again. (Last Error: {last_error})")
