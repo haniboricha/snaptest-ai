@@ -37,40 +37,34 @@ def generate_test_suite(api_key: str, uploaded_image: Image.Image = None, html_s
         response_mime_type="application/json"
     )
 
-    # List of candidate models in order of priority
-    models_to_try = [
-        GEMINI_MODEL if GEMINI_MODEL else "gemini-2.5-flash",
-        "gemini-2.5-flash",
-        "gemini-1.5-flash-latest"
-    ]
-    
-    # Remove duplicates while preserving order
-    candidate_models = list(dict.fromkeys(models_to_try))
+    # Clean list of valid Gemini model identifiers in order of priority
+    candidate_models = ["gemini-2.5-flash", "gemini-1.5-flash"]
+    if GEMINI_MODEL and GEMINI_MODEL not in candidate_models:
+        candidate_models.insert(0, GEMINI_MODEL)
 
     last_error = None
 
-    for model in candidate_models:
+    for model_name in candidate_models:
         max_retries = 3
         for attempt in range(max_retries):
             try:
                 response = client.models.generate_content(
-                    model=model,
+                    model=model_name,
                     contents=contents,
                     config=config
                 )
                 return clean_and_parse_json(response.text)
             except APIError as e:
                 last_error = e
-                # Check for 503 Server Unavailable or 429 Rate Limit
+                # Retry on 503 Server Unavailable or 429 Rate Limit
                 if e.code in (503, 429) or "UNAVAILABLE" in str(e):
                     if attempt < max_retries - 1:
-                        sleep_time = (2 ** attempt) * 3  # Wait 3s, then 6s, then 12s
-                        time.sleep(sleep_time)
+                        time.sleep((2 ** attempt) * 2 + 1)  # Waits 3s, 5s, 9s
                         continue
-                # If non-transient API error, jump to next candidate model
+                # If model is not found or non-transient, switch to the next candidate
                 break
             except Exception as e:
                 last_error = e
                 break
 
-    raise Exception(f"Google Gemini servers are currently experiencing high demand. Please try clicking 'Generate Test Cases' again in 10-15 seconds. Details: {last_error}")
+    raise Exception(f"Google Gemini servers are temporarily busy. Please wait a moment and try again. Details: {last_error}")
